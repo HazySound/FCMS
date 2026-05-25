@@ -47,11 +47,20 @@ hiddenimports += ['certifi']
 
 # ─────────────────────────────────────────────
 # Pretendard 한글 폰트 — process-private 등록 후 CTkFont에서 사용
+# icon.ico — 런타임에 iconbitmap()이 디스크에서 읽음 (spec의 icon= 옵션은
+#            exe resource에 박는 것일 뿐 디스크 파일과는 별개)
 # ─────────────────────────────────────────────
 datas += [
     ('assets/Pretendard-Regular.ttf', 'assets'),
     ('assets/Pretendard-Bold.ttf', 'assets'),
+    ('assets/icon.ico', 'assets'),
 ]
+
+# ─────────────────────────────────────────────
+# PIL — iconphoto가 ICO 안의 모든 사이즈를 멀티 PhotoImage로 등록할 때 사용
+# (customtkinter가 PIL 의존이라 자동 포함되긴 하지만 명시)
+# ─────────────────────────────────────────────
+hiddenimports += ['PIL', 'PIL.Image', 'PIL.ImageTk', 'PIL.IcoImagePlugin']
 
 
 a = Analysis(
@@ -88,4 +97,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['assets/icon.ico'],
 )

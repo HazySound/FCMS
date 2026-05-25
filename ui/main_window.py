@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import re
 import threading
+from pathlib import Path
 from tkinter import messagebox
 from typing import Optional
 
 import customtkinter as ctk
 
 from core import accounts, app_state, fc_api, fc_stats, fc_stats_db as db, fc_sync
+from path_manager import get_resource_path
 from ui.stats_view import StatsView
 from ui.theme import THEME
 
@@ -44,6 +46,7 @@ class MainWindow(ctk.CTk):
         self.title("FC 채굴 통계")
         self.minsize(*MIN_SIZE)
         self._apply_initial_geometry()
+        self._apply_window_icon()
 
         self._sync_thread: Optional[threading.Thread] = None
         self._cancel_event = threading.Event()
@@ -544,6 +547,48 @@ class MainWindow(ctk.CTk):
     # ─────────────────────────────────────────
     # 윈도우 위치 / 크기
     # ─────────────────────────────────────────
+
+    def _apply_window_icon(self):
+        """타이틀바 + 작업표시줄 아이콘 적용.
+
+        iconbitmap을 항상 fallback으로 호출하고, 가능하면 iconphoto로 ICO 안의
+        모든 사이즈를 PhotoImage로 등록한다. iconphoto가 적용되면 Windows가
+        상황별 정확한 사이즈를 골라서 작업표시줄 흐림이 사라지고, 빌드본에서
+        ImageTk가 실패해도 iconbitmap fallback으로 최소한 아이콘은 보인다.
+        PhotoImage는 GC되면 사라지므로 self에 list로 보관.
+        """
+        try:
+            icon_path = Path(get_resource_path("assets/icon.ico")).resolve()
+            if not icon_path.exists():
+                return
+            icon_str = str(icon_path)
+        except Exception:
+            return
+
+        # 1) iconbitmap fallback — 최소한 아이콘은 보이게
+        try:
+            self.iconbitmap(default=icon_str)
+        except Exception:
+            pass
+
+        # 2) iconphoto — 멀티 사이즈 PhotoImage 등록 (선명도 향상)
+        try:
+            from PIL import Image, ImageTk
+            with Image.open(icon_path) as ico:
+                if hasattr(ico, "ico"):
+                    sizes = sorted(ico.ico.sizes())
+                    imgs = []
+                    for s in sizes:
+                        sub = ico.ico.getimage(s)
+                        sub.load()
+                        imgs.append(sub.copy())
+                else:
+                    ico.load()
+                    imgs = [ico.copy()]
+            self._icon_photos = [ImageTk.PhotoImage(im) for im in imgs]
+            self.iconphoto(True, *self._icon_photos)
+        except Exception:
+            pass
 
     def _apply_initial_geometry(self):
         saved = app_state.get_geometry()

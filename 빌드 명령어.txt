@@ -3,22 +3,31 @@
 :: ─────────────────────────────────────────────
 pyinstaller FCMS.spec
 
-:: 산출물: dist\FCMS.exe (단일 파일, 콘솔 창 없음)
+:: 산출물: dist\FCMS.exe
+::   - 단일 파일, 콘솔 창 없음
+::   - 아이콘(assets/icon.ico) 포함
+::   - Pretendard 폰트, urllib3, certifi 등 모든 리소스 번들
 
 
 :: ─────────────────────────────────────────────
-:: 깨끗하게 재빌드 (build/dist 폴더 삭제 후 새로)
+:: 깨끗하게 재빌드 (build/dist 폴더 정리 후 새로)
 :: ─────────────────────────────────────────────
 pyinstaller --clean FCMS.spec
 
 
 :: ─────────────────────────────────────────────
-:: 디버그용 (콘솔 출력 보임 — fc_sync timing 로그 확인)
+:: 디버그 빌드 (콘솔 출력 보임 — fc_sync timing 로그 확인용)
 :: ─────────────────────────────────────────────
-pyinstaller --onefile --collect-all customtkinter --collect-all urllib3 --collect-data certifi --name FCMS_debug main.py
+:: FCMS.spec의 EXE(..., console=False)를 console=True로 임시 변경 후
+::   pyinstaller --clean FCMS.spec
+:: 다 끝나면 console=False로 복원
+::
+:: 또는 FCMS.spec을 복사해 console=True인 별도 spec(FCMS_debug.spec 등)을 두고
+::   pyinstaller --clean FCMS_debug.spec
 
 
 :: 참고:
-::   - 정식 빌드는 FCMS.spec 한 번이면 끝. 다른 옵션은 spec 파일 안에 다 있음.
-::   - data/ 폴더는 첫 실행 시 자동 생성됨 (DB + meta.json 적재 위치)
-::   - 아이콘 추가하려면 FCMS.spec의 EXE() 안에 icon='assets\\icon.ico' 한 줄 추가
+::   - 모든 빌드 옵션·리소스(아이콘/폰트/urllib3/certifi)는 FCMS.spec 안에 있음
+::   - data/ 폴더는 첫 실행 시 자동 생성 (DB + meta.json 적재 위치)
+::   - 아이콘이 안 박혀 보이면 Windows 탐색기의 아이콘 캐시 가능성 →
+::     exe를 다른 폴더로 옮기거나, 작업표시줄에 한 번 띄워 확인
