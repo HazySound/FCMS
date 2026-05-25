@@ -1,0 +1,181 @@
+"""시간 패턴 탭 — 0~23시 시간대별 활동량과 승률.
+
+레이아웃:
+    [인사이트 3개: 최다활동 / 최고승률 / 최저승률]
+    [매치 수 막대 차트 (24시간)]
+    [승률 막대 차트 (24시간)]
+"""
+
+from __future__ import annotations
+
+import customtkinter as ctk
+
+from core import fc_stats
+from ui.tabs._base import BaseTab
+from ui.theme import THEME
+from ui.widgets import BarChart
+
+PAD = 12
+PAD_SMALL = 6
+
+# 표본이 너무 적은 시간대는 승률 인사이트에서 제외 (튀는 값 방지)
+_MIN_SAMPLES_FOR_WR = 10
+
+
+class TimePatternTab(BaseTab):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
+        self._cached = None
+        self._build_ui()
+
+    # ─────────────────────────────────────────
+    # UI
+    # ─────────────────────────────────────────
+
+    def _build_ui(self):
+        # row 0: 옵션 바
+        opts = ctk.CTkFrame(self, fg_color="transparent")
+        opts.grid(row=0, column=0, padx=PAD, pady=(PAD, 0), sticky="ew")
+        self._avg_var = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(
+            opts, text="평균선 표시",
+            variable=self._avg_var, command=self._reapply,
+        ).pack(side="left")
+
+        # row 1: 인사이트 카드
+        insights = ctk.CTkFrame(self, fg_color="transparent")
+        insights.grid(row=1, column=0, padx=PAD, pady=(PAD_SMALL, PAD_SMALL), sticky="ew")
+        insights.grid_columnconfigure((0, 1, 2), weight=1)
+
+        self._insight_cards = []
+        for i in range(3):
+            card = ctk.CTkFrame(insights, fg_color=THEME["LOG_BG"], corner_radius=8)
+            card.grid(row=0, column=i, padx=(0 if i == 0 else PAD_SMALL, 0),
+                      pady=0, sticky="ew")
+            title = ctk.CTkLabel(
+                card, text="-", anchor="w", text_color=THEME["TEXT_MUTED"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+            )
+            title.pack(fill="x", padx=PAD, pady=(PAD_SMALL, 0))
+            value = ctk.CTkLabel(
+                card, text="-", anchor="w", text_color=THEME["TEXT"],
+                font=ctk.CTkFont(size=16, weight="bold"),
+            )
+            value.pack(fill="x", padx=PAD, pady=(0, PAD_SMALL))
+            self._insight_cards.append({"title": title, "value": value})
+
+        # 매치 수 차트
+        self._count_chart = BarChart(self, height=180)
+        self._count_chart.grid(row=2, column=0, padx=PAD, pady=PAD_SMALL, sticky="nsew")
+
+        # 승률 차트
+        self._wr_chart = BarChart(self, height=180)
+        self._wr_chart.grid(row=3, column=0, padx=PAD, pady=(PAD_SMALL, PAD), sticky="nsew")
+
+    # ─────────────────────────────────────────
+    # 데이터 갱신
+    # ─────────────────────────────────────────
+
+    def set_data(self, matches, start, end, unit, label):
+        self._cached = (matches, start, end, unit, label)
+        self._reapply()
+
+    def _reapply(self):
+        if self._cached is None:
+            return
+        matches, start, end, unit, label = self._cached
+        buckets = fc_stats.hourly_breakdown(matches)
+        total_matches = sum(b["total"] for b in buckets)
+        show_avg = self._avg_var.get()
+
+        count_items = [{
+            "label": b["label"],
+            "value": b["total"],
+            "tooltip_lines": _tooltip_lines(b),
+        } for b in buckets]
+        self._count_chart.set_data(count_items, {
+            "y_format": "{:,.0f}",
+            "title": f"{label} · 시간대별 매치 수",
+            "avg_line": show_avg,
+            "avg_label_fmt": "시간당 평균 {:.1f}판",
+            "max_x_ticks": 24,
+        })
+
+        wr_items = []
+        for b in buckets:
+            if b["total"] > 0:
+                wr_items.append({
+                    "label": b["label"],
+                    "value": b["win_rate"],
+                    "tooltip_lines": _tooltip_lines(b),
+                })
+            else:
+                wr_items.append({
+                    "label": b["label"], "value": 0.0,
+                    "color": THEME["BORDER"],
+                    "tooltip_lines": [b["label"], "매치 없음"],
+                })
+        self._wr_chart.set_data(wr_items, {
+            "y_format": "{:.0%}",
+            "title": f"{label} · 시간대별 승률",
+            "avg_line": show_avg and total_matches > 0,
+            "avg_label_fmt": "평균 {:.0%}",
+            "max_x_ticks": 24,
+        })
+
+        self._update_insights(buckets, total_matches)
+
+    def _update_insights(self, buckets: list[dict], total_matches: int):
+        if total_matches == 0:
+            for c in self._insight_cards:
+                c["title"].configure(text="-")
+                c["value"].configure(text="-", text_color=THEME["TEXT_MUTED"])
+            return
+
+        # 1) 최다 활동 시간대
+        most_active = max(buckets, key=lambda b: b["total"])
+        self._insight_cards[0]["title"].configure(text="🕐 가장 활발한 시간")
+        self._insight_cards[0]["value"].configure(
+            text=f"{most_active['label']}  ({most_active['total']}판)",
+            text_color=THEME["TEXT"],
+        )
+
+        # 2) 최고 승률 — 표본 10판 이상
+        eligible = [b for b in buckets if b["total"] >= _MIN_SAMPLES_FOR_WR]
+        if eligible:
+            best = max(eligible, key=lambda b: b["win_rate"])
+            self._insight_cards[1]["title"].configure(
+                text=f"🏆 최고 승률 (≥{_MIN_SAMPLES_FOR_WR}판)"
+            )
+            self._insight_cards[1]["value"].configure(
+                text=f"{best['label']}  {best['win_rate']*100:.1f}%  ({best['total']}판)",
+                text_color=THEME["OK"],
+            )
+            worst = min(eligible, key=lambda b: b["win_rate"])
+            self._insight_cards[2]["title"].configure(
+                text=f"💀 최저 승률 (≥{_MIN_SAMPLES_FOR_WR}판)"
+            )
+            self._insight_cards[2]["value"].configure(
+                text=f"{worst['label']}  {worst['win_rate']*100:.1f}%  ({worst['total']}판)",
+                text_color=THEME["ERR"],
+            )
+        else:
+            for c in self._insight_cards[1:]:
+                c["title"].configure(text="승률 인사이트")
+                c["value"].configure(
+                    text=f"표본 부족 (시간대당 {_MIN_SAMPLES_FOR_WR}판 미만)",
+                    text_color=THEME["TEXT_MUTED"],
+                )
+
+
+def _tooltip_lines(b: dict) -> list[str]:
+    if b["total"] == 0:
+        return [b["label"], "매치 없음"]
+    return [
+        b["label"],
+        f"판수: {b['total']}",
+        f"{b['wins']}승 {b['losses']}패  ({b['win_rate']*100:.1f}%)",
+        f"FC: {b['fc']:,}",
+    ]

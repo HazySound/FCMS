@@ -23,10 +23,15 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from core import accounts, app_state, fc_api, fc_stats, fc_stats_db as db, fc_sync
+from core import accounts, app_state, fc_api, fc_stats, fc_stats_db as db, fc_sync, updater
 from path_manager import get_resource_path
-from ui.stats_view import StatsView
+from ui.tabs import (
+    OverviewTab, TimePatternTab, WeekdayTab, TrendTab, DistributionTab,
+)
 from ui.theme import THEME
+from ui.update_dialog import UpdateProgressDialog
+from ui.widgets import PeriodPicker
+from version import APP_VERSION
 
 PAD = 12
 PAD_SMALL = 6
@@ -59,30 +64,68 @@ class MainWindow(ctk.CTk):
         self._sync_stats: Optional[fc_sync.SyncStats] = None
 
         self._account_label_to_ouid: dict[str, str] = {}
-        self._season_label_to_id: dict[str, int] = {}
-        self._selected_season: Optional[int] = None
+        self._current_matches: list[dict] = []
+        self._tabs: dict[str, object] = {}
 
         self._build_ui()
         self._refresh_all()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        # 앱 시작 ~2초 후 백그라운드로 자동 업데이트 체크
+        self.after(2000, self._auto_update_check)
+
     # ─────────────────────────────────────────
     # UI 구축
     # ─────────────────────────────────────────
 
     def _build_ui(self):
-        self.grid_rowconfigure(2, weight=1)
+        # row 0 = 업데이트 배너 (기본 숨김), row 1~4 = 기존 섹션
+        self.grid_rowconfigure(3, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self._build_update_banner()
         self._build_account_section()
-        self._build_season_section()
+        self._build_period_section()
         self._build_body_section()
         self._build_footer_section()
 
+    def _build_update_banner(self):
+        """상단 업데이트 배너. 새 버전 발견 시에만 grid_remove()/grid() 토글."""
+        self.update_banner = ctk.CTkFrame(self, fg_color="#E65100", corner_radius=6)
+        self.update_banner.grid_columnconfigure(0, weight=1)
+
+        self.update_banner_label = ctk.CTkLabel(
+            self.update_banner, text="",
+            text_color="#FFFFFF", anchor="w",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.update_banner_label.grid(row=0, column=0, padx=PAD, pady=PAD_SMALL, sticky="w")
+
+        ctk.CTkButton(
+            self.update_banner, text="업데이트", width=90,
+            fg_color="#FFFFFF", text_color="#E65100", hover_color="#FFE0B2",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._on_update_click,
+        ).grid(row=0, column=1, padx=(PAD_SMALL, PAD_SMALL), pady=PAD_SMALL)
+
+        ctk.CTkButton(
+            self.update_banner, text="나중에", width=70,
+            fg_color="transparent", border_width=1, border_color="#FFFFFF",
+            text_color="#FFFFFF", hover_color="#BF360C",
+            font=ctk.CTkFont(size=12),
+            command=self._dismiss_update_banner,
+        ).grid(row=0, column=2, padx=(0, PAD), pady=PAD_SMALL)
+
+        # 기본 숨김 (grid_remove로 자리도 차지하지 않음)
+        self.update_banner.grid(row=0, column=0, padx=PAD, pady=(PAD, 0), sticky="ew")
+        self.update_banner.grid_remove()
+
+        self._pending_release: Optional[dict] = None
+
     def _build_account_section(self):
         frame = ctk.CTkFrame(self, fg_color=THEME["PANEL_BG"])
-        frame.grid(row=0, column=0, padx=PAD, pady=(PAD, PAD_SMALL), sticky="ew")
+        frame.grid(row=1, column=0, padx=PAD, pady=(PAD, PAD_SMALL), sticky="ew")
         frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -108,34 +151,42 @@ class MainWindow(ctk.CTk):
         )
         self.btn_remove.grid(row=0, column=3, padx=(PAD_SMALL, PAD), pady=PAD_SMALL)
 
-    def _build_season_section(self):
+    def _build_period_section(self):
         frame = ctk.CTkFrame(self, fg_color=THEME["PANEL_BG"])
-        frame.grid(row=1, column=0, padx=PAD, pady=PAD_SMALL, sticky="ew")
-        frame.grid_columnconfigure(1, weight=1)
+        frame.grid(row=2, column=0, padx=PAD, pady=PAD_SMALL, sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            frame, text="시즌:", width=60, anchor="w",
-            text_color=THEME["TEXT"],
-        ).grid(row=0, column=0, padx=(PAD, PAD_SMALL), pady=PAD_SMALL, sticky="w")
-
-        self.season_menu = ctk.CTkOptionMenu(
-            frame, values=["(데이터 없음)"],
-            command=self._on_season_changed,
-        )
-        self.season_menu.grid(row=0, column=1, padx=PAD_SMALL, pady=PAD_SMALL, sticky="ew")
+        self.period_picker = PeriodPicker(frame, on_change=self._on_period_change)
+        self.period_picker.grid(row=0, column=0, padx=PAD, pady=PAD_SMALL, sticky="w")
 
         self.btn_sync = ctk.CTkButton(
             frame, text="지금 동기화", width=120, command=self._on_sync_now,
         )
-        self.btn_sync.grid(row=0, column=2, padx=(PAD_SMALL, PAD), pady=PAD_SMALL)
+        self.btn_sync.grid(row=0, column=1, padx=(PAD_SMALL, PAD), pady=PAD_SMALL)
 
     def _build_body_section(self):
-        self.stats_view = StatsView(self)
-        self.stats_view.grid(row=2, column=0, padx=PAD, pady=PAD_SMALL, sticky="nsew")
+        self.tabview = ctk.CTkTabview(self, fg_color=THEME["PANEL_BG"])
+        self.tabview.grid(row=3, column=0, padx=PAD, pady=PAD_SMALL, sticky="nsew")
+
+        # 탭 추가 + 각 탭 내부에 BaseTab 위젯 embed
+        for name, cls in (
+            ("개요",      OverviewTab),
+            ("시간 패턴", TimePatternTab),
+            ("요일 패턴", WeekdayTab),
+            ("추이",      TrendTab),
+            ("분포",      DistributionTab),
+        ):
+            self.tabview.add(name)
+            host = self.tabview.tab(name)
+            host.grid_columnconfigure(0, weight=1)
+            host.grid_rowconfigure(0, weight=1)
+            tab = cls(host)
+            tab.grid(row=0, column=0, sticky="nsew")
+            self._tabs[name] = tab
 
     def _build_footer_section(self):
         frame = ctk.CTkFrame(self, fg_color=THEME["PANEL_BG"])
-        frame.grid(row=3, column=0, padx=PAD, pady=(PAD_SMALL, PAD), sticky="ew")
+        frame.grid(row=4, column=0, padx=PAD, pady=(PAD_SMALL, PAD), sticky="ew")
         frame.grid_columnconfigure(0, weight=1)
 
         self.footer_status = ctk.CTkLabel(
@@ -144,14 +195,31 @@ class MainWindow(ctk.CTk):
         )
         self.footer_status.grid(row=0, column=0, padx=PAD, pady=PAD_SMALL, sticky="w")
 
+        # 우측 끝에 버전 표시 + 수동 업데이트 확인 버튼 (기존 footer를 방해 안 하는 자리)
+        self.footer_version = ctk.CTkLabel(
+            frame, text=f"v{APP_VERSION}", anchor="e",
+            text_color=THEME["TEXT_MUTED"],
+            font=ctk.CTkFont(size=11),
+        )
+        self.footer_version.grid(row=0, column=1, padx=(PAD_SMALL, PAD_SMALL), pady=PAD_SMALL)
+
+        self.btn_check_update = ctk.CTkButton(
+            frame, text="업데이트 확인", width=110, height=26,
+            fg_color="transparent", border_width=1,
+            text_color=THEME["TEXT_MUTED"],
+            font=ctk.CTkFont(size=11),
+            command=self._on_manual_update_check,
+        )
+        self.btn_check_update.grid(row=0, column=2, padx=(0, PAD), pady=PAD_SMALL)
+
     # ─────────────────────────────────────────
     # 상태 갱신
     # ─────────────────────────────────────────
 
     def _refresh_all(self):
         self._refresh_account_picker()
-        self._refresh_seasons()
-        self.stats_view.set_season(self._selected_season)
+        self._refresh_period_picker()
+        self._refresh_tabs()
         self._refresh_footer()
         self._refresh_buttons()
 
@@ -178,32 +246,33 @@ class MainWindow(ctk.CTk):
         )
         self.account_menu.set(active_label)
 
-    def _refresh_seasons(self):
+    def _refresh_period_picker(self):
+        """PeriodPicker에 시즌 옵션 갱신. 활성 계정 없거나 데이터 없으면 시즌 없음."""
         if not accounts.get_active_ouid():
-            self.season_menu.configure(values=["(데이터 없음)"])
-            self.season_menu.set("(데이터 없음)")
-            self._selected_season = None
-            self._season_label_to_id = {}
+            self.period_picker.set_seasons([])
             return
-
         try:
             seasons = fc_stats.get_known_seasons()
         except db.NoActiveAccountError:
             seasons = []
+        self.period_picker.set_seasons(seasons)
 
-        if not seasons:
-            self.season_menu.configure(values=["(데이터 없음)"])
-            self.season_menu.set("(데이터 없음)")
-            self._selected_season = None
-            self._season_label_to_id = {}
-            return
-
-        labels = [fc_stats.format_season_id(s) for s in seasons]
-        self._season_label_to_id = dict(zip(labels, seasons))
-        self.season_menu.configure(values=labels)
-        if self._selected_season is None or self._selected_season not in seasons:
-            self._selected_season = seasons[0]
-        self.season_menu.set(fc_stats.format_season_id(self._selected_season))
+    def _refresh_tabs(self):
+        """현재 PeriodPicker 선택 기간의 매치를 모든 탭에 push."""
+        start, end, label = self.period_picker.get_period()
+        if not accounts.get_active_ouid():
+            self._current_matches = []
+        else:
+            try:
+                self._current_matches = fc_stats.get_matches_for_period(start, end)
+            except db.NoActiveAccountError:
+                self._current_matches = []
+        unit = fc_stats.determine_unit(start, end)
+        for tab in self._tabs.values():
+            try:
+                tab.set_data(self._current_matches, start, end, unit, label)
+            except Exception as e:
+                print(f"[tab refresh] {tab.__class__.__name__}: {e}")
 
     def _refresh_footer(self):
         if not accounts.get_active_ouid():
@@ -244,7 +313,7 @@ class MainWindow(ctk.CTk):
             return
         accounts.set_active_ouid(ouid)
         db.init_db()  # 새 활성 계정 DB 스키마 보장
-        self._selected_season = None
+        self.period_picker.reset_to_default()
         self._refresh_all()
 
     def _on_add_account(self):
@@ -313,7 +382,7 @@ class MainWindow(ctk.CTk):
             accounts.add_account(ouid, nickname, make_active=True)
 
         db.init_db()
-        self._selected_season = None
+        self.period_picker.reset_to_default()
         self._refresh_all()
         self._start_sync()
 
@@ -347,19 +416,16 @@ class MainWindow(ctk.CTk):
         accounts.remove_account(active["ouid"], delete_db=delete_db)
         if accounts.get_active_ouid():
             db.init_db()
-        self._selected_season = None
+        self.period_picker.reset_to_default()
         self._refresh_all()
 
     # ─────────────────────────────────────────
     # 시즌 + sync
     # ─────────────────────────────────────────
 
-    def _on_season_changed(self, value: str):
-        sid = self._season_label_to_id.get(value)
-        if sid is None:
-            return
-        self._selected_season = sid
-        self.stats_view.set_season(sid)
+    def _on_period_change(self, start, end, label):
+        """PeriodPicker에서 기간 변경 시 호출. 탭들 갱신."""
+        self._refresh_tabs()
 
     def _on_sync_now(self):
         if self._sync_running() or not accounts.get_active_ouid():
@@ -470,6 +536,9 @@ class MainWindow(ctk.CTk):
             finished = result.get("finished_at")
             if ouid:
                 accounts.touch_last_synced(ouid, finished)
+        # 시즌 옵션 갱신 후 기본 기간(이번 시즌)로 재설정
+        self._refresh_period_picker()
+        self.period_picker.reset_to_default()
         self._refresh_all()
 
     def _on_sync_error(self, msg: str):
@@ -526,6 +595,86 @@ class MainWindow(ctk.CTk):
         self._cancel_event.set()
         if self._progress_label is not None:
             self._progress_label.configure(text="취소 요청 중... 대기")
+
+    # ─────────────────────────────────────────
+    # 자동 업데이트
+    # ─────────────────────────────────────────
+
+    def _auto_update_check(self):
+        """앱 시작 시 백그라운드로 새 버전 체크. 새 버전 있으면 배너만 표시."""
+        threading.Thread(target=self._update_check_worker,
+                         args=(False,), daemon=True).start()
+
+    def _on_manual_update_check(self):
+        """수동 '업데이트 확인' 버튼. 결과를 messagebox로도 알림."""
+        self.btn_check_update.configure(state="disabled", text="확인 중...")
+        threading.Thread(target=self._update_check_worker,
+                         args=(True,), daemon=True).start()
+
+    def _update_check_worker(self, manual: bool):
+        info = updater.check_latest_release()
+        self.after(0, lambda: self._on_update_check_done(info, manual))
+
+    def _on_update_check_done(self, info: Optional[dict], manual: bool):
+        # 수동 트리거 버튼 상태 복구
+        if manual:
+            self.btn_check_update.configure(state="normal", text="업데이트 확인")
+
+        if info is None:
+            if manual:
+                err = updater.check_latest_release.last_error
+                if err:
+                    messagebox.showerror("업데이트 확인 실패",
+                                         f"네트워크 오류:\n{err}", parent=self)
+                else:
+                    messagebox.showinfo("업데이트", "최신 버전을 사용 중입니다.",
+                                        parent=self)
+            return
+
+        tag = info.get("tag_name", "")
+        if not updater.is_newer(tag):
+            if manual:
+                messagebox.showinfo(
+                    "업데이트", f"최신 버전을 사용 중입니다. (v{APP_VERSION})",
+                    parent=self,
+                )
+            return
+
+        # 새 버전 있음 — 배너 표시
+        self._pending_release = info
+        self._show_update_banner(tag)
+        if manual:
+            # 수동 확인이면 사용자에게 한 번 명확히 알림
+            messagebox.showinfo(
+                "새 버전 발견",
+                f"새 버전 {tag}이(가) 발견됐습니다.\n"
+                f"상단 배너의 [업데이트] 버튼으로 진행해 주세요.",
+                parent=self,
+            )
+
+    def _show_update_banner(self, tag: str):
+        self.update_banner_label.configure(
+            text=f"새 버전 {tag}이(가) 출시되었습니다. (현재 v{APP_VERSION})"
+        )
+        self.update_banner.grid()
+
+    def _dismiss_update_banner(self):
+        """배너 닫기 — 다음 앱 실행 시 다시 알림 (영구 무시 아님)."""
+        self.update_banner.grid_remove()
+
+    def _on_update_click(self):
+        """배너의 [업데이트] 버튼 — 진행률 모달 띄움."""
+        if not self._pending_release:
+            return
+        # 동기화 진행 중이면 차단 (오작동 방지)
+        if self._sync_running():
+            messagebox.showinfo(
+                "업데이트 보류",
+                "동기화가 진행 중입니다. 완료 후 다시 시도해 주세요.",
+                parent=self,
+            )
+            return
+        UpdateProgressDialog(self, self._pending_release)
 
     # ─────────────────────────────────────────
     # 종료
