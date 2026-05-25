@@ -1,0 +1,24 @@
+:: ─────────────────────────────────────────────
+:: 정식 빌드 (이거 하나만 쓰면 됨)
+:: ─────────────────────────────────────────────
+pyinstaller FCMS.spec
+
+:: 산출물: dist\FCMS.exe (단일 파일, 콘솔 창 없음)
+
+
+:: ─────────────────────────────────────────────
+:: 깨끗하게 재빌드 (build/dist 폴더 삭제 후 새로)
+:: ─────────────────────────────────────────────
+pyinstaller --clean FCMS.spec
+
+
+:: ─────────────────────────────────────────────
+:: 디버그용 (콘솔 출력 보임 — fc_sync timing 로그 확인)
+:: ─────────────────────────────────────────────
+pyinstaller --onefile --collect-all customtkinter --collect-all urllib3 --collect-data certifi --name FCMS_debug main.py
+
+
+:: 참고:
+::   - 정식 빌드는 FCMS.spec 한 번이면 끝. 다른 옵션은 spec 파일 안에 다 있음.
+::   - data/ 폴더는 첫 실행 시 자동 생성됨 (DB + meta.json 적재 위치)
+::   - 아이콘 추가하려면 FCMS.spec의 EXE() 안에 icon='assets\\icon.ico' 한 줄 추가
