@@ -3,6 +3,9 @@
 본문은 단순 평문(줄바꿈 보존)으로 렌더링. 상단에 색상 바, urgent면 ⚠️ 아이콘.
 링크는 옵션 — link_url이 있으면 [link_label or "<링크>"] 버튼 표시.
 
+모든 공지는 modal + topmost — 사용자가 확인 / X로 닫기 전까지 메인 창 사용 불가.
+사용자가 못 보고 지나치지 않게 강제 표시.
+
 닫기(X) 또는 [확인] 시 mark_seen 호출. 한 번 본 공지는 다시 안 뜸.
 """
 
@@ -44,6 +47,7 @@ class NoticeDialog(ctk.CTkToplevel):
         self.geometry(f"{DIALOG_W}x{DIALOG_H}")
         self.minsize(440, 340)
         self.configure(fg_color=THEME["APP_BG"])
+        self.transient(parent)
 
         # 상단 색상 바
         bar = ctk.CTkFrame(self, fg_color=color, height=6, corner_radius=0)
@@ -108,9 +112,17 @@ class NoticeDialog(ctk.CTkToplevel):
         if hasattr(parent, "_center_child"):
             parent._center_child(self)
 
-        # urgent는 항상 위로 — 사용자가 못 보고 지나치지 않게
-        if urgent:
-            self.after(100, lambda: self.attributes("-topmost", True))
+        # 모든 공지는 항상 위 + modal — 메인 창 클릭 막아 확인 강제.
+        # grab_set은 윈도우가 매핑된 후 호출해야 안전.
+        self.after(50, self._activate_modal)
+
+    def _activate_modal(self):
+        try:
+            self.attributes("-topmost", True)
+            self.grab_set()
+            self.focus_force()
+        except Exception:
+            pass
 
     def _dismiss(self):
         if self._notice_id:

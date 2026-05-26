@@ -37,7 +37,7 @@ from version import GITHUB_REPO
 
 NOTICES_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/notices.json"
 _USER_AGENT = "FCMS-Notices/1.0"
-_TIMEOUT = 10
+_TIMEOUT = 5
 
 
 def fetch_unseen_notices() -> list[dict]:
@@ -76,10 +76,10 @@ def mark_seen(notice_id: str) -> None:
 # ─────────────────────────────────────────────
 
 def _fetch_json():
-    # cache buster — push 직후도 빠르게 반영. CDN이 query string 다르면 캐시 미스.
-    url = f"{NOTICES_URL}?t={int(_dt.datetime.utcnow().timestamp() // 60)}"
+    # cache buster 없이 — CDN 캐시 활용으로 빠른 응답.
+    # 새 공지 push 후엔 raw.githubusercontent.com이 5분 이내 갱신.
     try:
-        req = Request(url, headers={"User-Agent": _USER_AGENT})
+        req = Request(NOTICES_URL, headers={"User-Agent": _USER_AGENT})
         with urlopen(req, timeout=_TIMEOUT, context=_SSL_CTX) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception:

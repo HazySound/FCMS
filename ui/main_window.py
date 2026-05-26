@@ -78,8 +78,9 @@ class MainWindow(ctk.CTk):
 
         # 앱 시작 ~2초 후 백그라운드로 자동 업데이트 체크
         self.after(2000, self._auto_update_check)
-        # 앱 시작 ~3초 후 백그라운드로 공지 체크 — 업데이트 체크와 살짝 분리
-        self.after(3000, self._auto_notice_check)
+        # 공지 체크는 UI가 그려진 직후(~200ms) 즉시 시작 — 사용자가 메인 작업
+        # 시작하기 전에 빠르게 띄우기 위함
+        self.after(200, self._auto_notice_check)
 
     # ─────────────────────────────────────────
     # UI 구축
