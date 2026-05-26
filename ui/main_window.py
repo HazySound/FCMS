@@ -28,6 +28,7 @@ from path_manager import get_resource_path
 from ui.tabs import (
     OverviewTab, TimePatternTab, WeekdayTab, TrendTab, DistributionTab,
 )
+from ui.about_dialog import AboutDialog
 from ui.notice_dialog import NoticeDialog
 from ui.theme import THEME
 from ui.update_dialog import UpdateProgressDialog
@@ -253,7 +254,19 @@ class MainWindow(ctk.CTk):
             font=ctk.CTkFont(size=11),
             command=self._on_manual_update_check,
         )
-        self.btn_check_update.grid(row=0, column=2, padx=(0, PAD), pady=PAD_SMALL)
+        self.btn_check_update.grid(row=0, column=2, padx=(0, PAD_SMALL), pady=PAD_SMALL)
+
+        self.btn_about = ctk.CTkButton(
+            frame, text="정보", width=60, height=26,
+            fg_color="transparent", border_width=1,
+            text_color=THEME["TEXT_MUTED"],
+            font=ctk.CTkFont(size=11),
+            command=self._on_about_click,
+        )
+        self.btn_about.grid(row=0, column=3, padx=(0, PAD), pady=PAD_SMALL)
+
+    def _on_about_click(self):
+        AboutDialog(self)
 
     # ─────────────────────────────────────────
     # 상태 갱신

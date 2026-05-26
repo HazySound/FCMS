@@ -25,8 +25,13 @@ DEFAULT_INFO_COLOR = THEME["ACCENT"]    # #4A9EFF
 DEFAULT_URGENT_COLOR = THEME["ERR"]     # #ef4444
 DEFAULT_LINK_LABEL = "<링크>"
 
-DIALOG_W = 560
-DIALOG_H = 440
+DIALOG_W = 620
+DIALOG_H = 500
+
+TITLE_SIZE = 20
+BODY_SIZE = 16
+DATE_SIZE = 14
+BUTTON_SIZE = 14
 
 
 class NoticeDialog(ctk.CTkToplevel):
@@ -61,7 +66,7 @@ class NoticeDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             header, text=title_text, anchor="w",
             text_color=THEME["TEXT"],
-            font=ctk.CTkFont(size=18, weight="bold"),
+            font=ctk.CTkFont(size=TITLE_SIZE, weight="bold"),
             wraplength=DIALOG_W - PAD * 4,
             justify="left",
         ).pack(side="left", fill="x", expand=True)
@@ -71,20 +76,23 @@ class NoticeDialog(ctk.CTkToplevel):
             ctk.CTkLabel(
                 header, text=str(date_str), anchor="e",
                 text_color=THEME["TEXT_MUTED"],
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(size=DATE_SIZE),
             ).pack(side="right", padx=(PAD_SMALL, 0))
 
-        # 본문 (스크롤)
-        body_frame = ctk.CTkScrollableFrame(self, fg_color=THEME["LOG_BG"])
-        body_frame.pack(fill="both", expand=True, padx=PAD, pady=PAD_SMALL)
-
+        # 본문 — CTkTextbox(disabled)로 두면 드래그 선택 + Ctrl+C 복사가 가능하다.
+        # CTkLabel은 selectable이 안 돼서 메일/URL 같은 텍스트 복사 불가능.
         body = notice.get("body") or ""
-        ctk.CTkLabel(
-            body_frame, text=body,
-            text_color=THEME["TEXT"], anchor="nw", justify="left",
-            wraplength=DIALOG_W - PAD * 4 - 20,
-            font=ctk.CTkFont(size=14),
-        ).pack(fill="both", expand=True, padx=PAD, pady=PAD)
+        body_box = ctk.CTkTextbox(
+            self, fg_color=THEME["LOG_BG"],
+            text_color=THEME["TEXT"],
+            font=ctk.CTkFont(size=BODY_SIZE),
+            wrap="word",
+        )
+        body_box.pack(fill="both", expand=True, padx=PAD, pady=PAD_SMALL)
+        body_box.insert("1.0", body)
+        # state="disabled"여도 tk.Text는 마우스 드래그 선택과 Ctrl+C 복사가 가능.
+        # 사용자 입력만 막아 본문 변조 방지.
+        body_box.configure(state="disabled")
 
         # 버튼 행
         btns = ctk.CTkFrame(self, fg_color="transparent")
@@ -94,16 +102,16 @@ class NoticeDialog(ctk.CTkToplevel):
         if link_url:
             link_label = notice.get("link_label") or DEFAULT_LINK_LABEL
             ctk.CTkButton(
-                btns, text=link_label, height=32,
+                btns, text=link_label, height=34,
                 fg_color="transparent", border_width=1,
                 text_color=THEME["ACCENT"],
-                font=ctk.CTkFont(size=13),
+                font=ctk.CTkFont(size=BUTTON_SIZE),
                 command=lambda u=link_url: webbrowser.open(u),
             ).pack(side="left")
 
         ctk.CTkButton(
-            btns, text="확인", width=90, height=32,
-            font=ctk.CTkFont(size=13),
+            btns, text="확인", width=100, height=34,
+            font=ctk.CTkFont(size=BUTTON_SIZE),
             command=self._dismiss,
         ).pack(side="right")
 
