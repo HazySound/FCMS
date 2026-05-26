@@ -57,6 +57,14 @@ datas += [
 ]
 
 # ─────────────────────────────────────────────
+# API 키 발급 도움말 — markdown + 캡처 이미지 4장
+# ApiKeyHelpDialog가 런타임에 디스크에서 읽음
+# ─────────────────────────────────────────────
+import glob as _glob
+for _f in _glob.glob('assets/help/*'):
+    datas.append((_f, 'assets/help'))
+
+# ─────────────────────────────────────────────
 # PIL — iconphoto가 ICO 안의 모든 사이즈를 멀티 PhotoImage로 등록할 때 사용
 # (customtkinter가 PIL 의존이라 자동 포함되긴 하지만 명시)
 # ─────────────────────────────────────────────

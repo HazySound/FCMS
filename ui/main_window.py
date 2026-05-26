@@ -30,7 +30,7 @@ from ui.tabs import (
 )
 from ui.theme import THEME
 from ui.update_dialog import UpdateProgressDialog
-from ui.widgets import PeriodPicker
+from ui.widgets import ApiKeyPopover, PeriodPicker
 from version import APP_VERSION
 
 PAD = 12
@@ -165,7 +165,43 @@ class MainWindow(ctk.CTk):
         self.btn_sync = ctk.CTkButton(
             frame, text="지금 동기화", width=120, command=self._on_sync_now,
         )
-        self.btn_sync.grid(row=0, column=1, padx=(PAD_SMALL, PAD), pady=PAD_SMALL)
+        self.btn_sync.grid(row=0, column=1, padx=(PAD_SMALL, PAD_SMALL), pady=PAD_SMALL)
+
+        # 황금색 🔑 버튼. 약간 크게 잡아 배지 + 🔑 모두 잘 보이게.
+        self.btn_api_key = ctk.CTkButton(
+            frame, text="🔑", width=44, height=34,
+            fg_color="#E6A817",
+            hover_color="#C58F12",
+            text_color="#1a1a1a",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            command=self._on_api_key_click,
+        )
+        self.btn_api_key.grid(row=0, column=2, padx=(0, PAD), pady=PAD_SMALL)
+
+        # 배지를 버튼의 자식으로 두면 사각형 영역이 버튼의 황금색을 따라가
+        # 둥근 원형만 두드러져 보인다. tkinter가 native transparency를 지원하지
+        # 않아 진짜 버튼 밖으로 튀어나오게는 못 함 — 안쪽 우상단에 작게 배치.
+        self.api_key_badge = ctk.CTkLabel(
+            self.btn_api_key, text="!",
+            text_color="white",
+            fg_color=THEME["ERR"],
+            corner_radius=7,
+            width=14, height=14,
+            font=ctk.CTkFont(size=9, weight="bold"),
+        )
+        self.api_key_badge.place(relx=1.0, rely=0.0, anchor="ne", x=-1, y=1)
+        self.api_key_badge.bind("<Button-1>", lambda _e: self._on_api_key_click())
+        self._refresh_api_key_badge()
+
+    def _on_api_key_click(self):
+        ApiKeyPopover.toggle(self.btn_api_key)
+
+    def _refresh_api_key_badge(self):
+        """app_state의 API 키 등록 여부에 따라 버튼 위 배지 갱신."""
+        if app_state.get_api_key():
+            self.api_key_badge.configure(text="✓", fg_color=THEME["OK"])
+        else:
+            self.api_key_badge.configure(text="!", fg_color=THEME["ERR"])
 
     def _build_body_section(self):
         self.tabview = ctk.CTkTabview(self, fg_color=THEME["PANEL_BG"])

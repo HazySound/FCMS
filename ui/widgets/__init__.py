@@ -8,5 +8,6 @@ from ui.widgets.bar_chart import BarChart
 from ui.widgets.line_chart import LineChart
 from ui.widgets.donut_chart import DonutChart
 from ui.widgets.period_picker import PeriodPicker
+from ui.widgets.api_key_popover import ApiKeyPopover
 
-__all__ = ["BarChart", "LineChart", "DonutChart", "PeriodPicker"]
+__all__ = ["BarChart", "LineChart", "DonutChart", "PeriodPicker", "ApiKeyPopover"]

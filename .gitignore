@@ -57,3 +57,7 @@ desktop.ini
 # ─────────────────────────────────────────────
 probe_*.py
 merge_legacy_db.py
+/data
+FCMS.exe
+/data
+/dist

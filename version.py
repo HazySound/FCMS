@@ -6,5 +6,5 @@
 GITHUB_REPO는 'username/repo' 형식. 처음 한 번 정확히 설정.
 """
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 GITHUB_REPO = "HazySound/FCMS"  # ← TODO: 실제 GitHub username/repo로 확인

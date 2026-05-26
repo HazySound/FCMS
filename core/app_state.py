@@ -59,3 +59,24 @@ def set_ui_pref(key: str, value) -> None:
     prefs[key] = value
     state["ui_prefs"] = prefs
     save_state(state)
+
+
+# ─────────────────────────────────────────────
+# Nexon Open API 키 (사용자가 직접 발급한 개인 키)
+# ─────────────────────────────────────────────
+
+def get_api_key() -> str:
+    """저장된 nexon API 키. 미설정 시 빈 문자열."""
+    val = load_state().get("nexon_api_key", "")
+    return val.strip() if isinstance(val, str) else ""
+
+
+def set_api_key(key: str) -> None:
+    """nexon API 키 저장. 빈 문자열이면 키 제거(폴백 모드)."""
+    state = load_state()
+    key = (key or "").strip()
+    if key:
+        state["nexon_api_key"] = key
+    else:
+        state.pop("nexon_api_key", None)
+    save_state(state)

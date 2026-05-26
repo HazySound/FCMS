@@ -1,6 +1,10 @@
 """FC Online API 클라이언트.
 
-CF Worker 프록시(nexon-api-proxy.cemigs1.workers.dev)를 경유한다.
+호출 라우팅:
+    - 사용자가 nexon Open API 키를 등록했으면 → nexon 공식 엔드포인트 직접 호출
+      (x-nxopen-api-key 헤더 사용)
+    - 등록 안 된 경우 → CF Worker 프록시 폴백
+      (Worker 운영 비용 부담으로 향후 종료 예정. 현재는 호환을 위해 유지)
 
 urllib3 PoolManager로 HTTP keep-alive connection을 재활용한다:
 - 매 호출마다 TCP/TLS handshake를 새로 하지 않아 응답 latency 큰 절감
@@ -18,12 +22,15 @@ from __future__ import annotations
 import json
 import time
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import urllib3
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
-API_BASE = "https://nexon-api-proxy.cemigs1.workers.dev"
+from core import app_state
+
+NEXON_DIRECT_BASE = "https://open.api.nexon.com"
+WORKER_PROXY_BASE = "https://nexon-api-proxy.cemigs1.workers.dev"
 
 MATCHTYPE_MANAGER = 52       # 감독모드 (FC 채굴 추적 대상)
 DIVISION_SUPER_CHAMPIONS = 800
@@ -43,7 +50,7 @@ _HEADERS = {
 # 재활용한다. maxsize는 동시 idle keep-alive connection 수.
 # block=False: maxsize 초과 시 일시적 connection을 추가 생성 (queue 대신).
 _POOL = urllib3.PoolManager(
-    num_pools=2,
+    num_pools=4,
     maxsize=128,
     block=False,
     retries=False,       # 재시도/backoff는 우리가 직접 관리
@@ -52,18 +59,31 @@ _POOL = urllib3.PoolManager(
 )
 
 
+def _resolve_endpoint() -> tuple[str, dict]:
+    """현재 사용할 (base_url, extra_headers) 결정.
+
+    키가 등록돼 있으면 nexon 공식 직접 호출(자신의 quota 사용),
+    없으면 Worker 폴백.
+    """
+    key = app_state.get_api_key()
+    if key:
+        return NEXON_DIRECT_BASE, {"x-nxopen-api-key": key}
+    return WORKER_PROXY_BASE, {}
+
+
 class FcApiError(Exception):
     """FC API 호출 실패. 호출부에서 사용자 메시지로 변환 가능."""
 
 
 def _http_get_json(path: str, params: dict):
     """GET + JSON parse. 429/5xx/네트워크 오류는 exponential backoff."""
-    url = f"{API_BASE}{path}?{urlencode(params)}"
+    base, extra_headers = _resolve_endpoint()
+    url = f"{base}{path}?{urlencode(params)}"
 
     backoff = _INITIAL_BACKOFF_SEC
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            resp = _POOL.request("GET", url)
+            resp = _POOL.request("GET", url, headers=extra_headers or None)
         except Urllib3HTTPError as e:
             if attempt < _MAX_RETRIES:
                 time.sleep(backoff)
@@ -158,6 +178,44 @@ def extract_user_match_info(detail: dict, user_ouid: str) -> Optional[dict]:
                 "matchEndType": md.get("matchEndType") or 0,
             }
     return None
+
+
+_VALIDATE_NICKNAME = "백준"  # 실제 존재하는 FC 온라인 닉네임 — 200+ouid로 키 유효성 검증
+
+
+def validate_api_key(key: str) -> tuple[bool, str]:
+    """nexon API 키 유효성 검증.
+
+    실제 존재하는 닉네임을 조회해 200 응답 + ouid 필드가 오면 통과로 본다.
+    이 닉네임이 nexon DB에 있는 한, 키가 진짜 유효한 경우에만 유효 판정.
+
+    반환: (is_valid, message)
+    """
+    key = (key or "").strip()
+    if not key:
+        return False, "키가 비어있습니다."
+    url = f"{NEXON_DIRECT_BASE}/fconline/v1/id?nickname={quote(_VALIDATE_NICKNAME)}"
+    try:
+        resp = _POOL.request("GET", url, headers={"x-nxopen-api-key": key})
+    except Urllib3HTTPError as e:
+        return False, f"네트워크 오류: {e}"
+
+    if resp.status == 200:
+        try:
+            data = json.loads(resp.data.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False, "응답을 해석할 수 없습니다. 잠시 후 다시 시도해 주세요."
+        if isinstance(data, dict) and data.get("ouid"):
+            return True, "유효한 키입니다."
+        return False, "응답이 비정상입니다. 키를 다시 확인해 주세요."
+
+    if resp.status in (401, 403):
+        return False, "키가 거부되었습니다. 키를 다시 확인해 주세요."
+    if resp.status == 429:
+        return False, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+    if resp.status >= 500:
+        return False, f"nexon 서버 오류 (HTTP {resp.status}). 잠시 후 다시 시도해 주세요."
+    return False, f"검증 실패 (HTTP {resp.status}). 키를 다시 확인해 주세요."
 
 
 def calc_fc(division: int, match_result: str, match_end_type: int = 0) -> int:
