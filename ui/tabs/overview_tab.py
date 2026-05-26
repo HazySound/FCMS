@@ -10,23 +10,19 @@ import datetime as _dt
 
 import customtkinter as ctk
 
-from core import fc_stats
-from ui.tabs._base import BaseTab, avg_label_fmt_for_unit, unit_label
+from core import app_state, fc_stats
+from ui.tabs._base import (
+    BaseTab, avg_label_fmt_for_unit, unit_label,
+    UNIT_LABEL_LIST, resolve_unit,
+)
 from ui.theme import THEME
 from ui.widgets import BarChart
 
 PAD = 12
 PAD_SMALL = 6
 
-
-_UNIT_CHOICES = [
-    ("자동", None),
-    ("시간대", "hour"),
-    ("일", "day"),
-    ("주", "week"),
-    ("월", "month"),
-    ("연", "year"),
-]
+_PREF_UNIT = "overview_unit"
+_PREF_AVG = "overview_avg"
 
 
 class OverviewTab(BaseTab):
@@ -48,18 +44,24 @@ class OverviewTab(BaseTab):
         ctk.CTkLabel(
             opts, text="단위:", anchor="w", text_color=THEME["TEXT_MUTED"],
         ).pack(side="left", padx=(0, PAD_SMALL))
-        unit_labels = [name for name, _ in _UNIT_CHOICES]
         self._unit_menu = ctk.CTkOptionMenu(
-            opts, values=unit_labels, command=lambda _v: self._reapply(),
+            opts, values=UNIT_LABEL_LIST,
+            command=lambda _v: self._on_pref_change(),
             width=110,
         )
-        self._unit_menu.set("자동")
+        # 저장된 설정 복원 (없으면 기본 '자동')
+        saved_unit = app_state.get_ui_pref(_PREF_UNIT, "자동")
+        if saved_unit not in UNIT_LABEL_LIST:
+            saved_unit = "자동"
+        self._unit_menu.set(saved_unit)
         self._unit_menu.pack(side="left", padx=(0, PAD))
 
-        self._avg_var = ctk.BooleanVar(value=True)
+        self._avg_var = ctk.BooleanVar(
+            value=bool(app_state.get_ui_pref(_PREF_AVG, True))
+        )
         ctk.CTkSwitch(
             opts, text="평균선 표시",
-            variable=self._avg_var, command=self._reapply,
+            variable=self._avg_var, command=self._on_pref_change,
         ).pack(side="left")
 
         # row 1: 통계 카드 격자
@@ -122,6 +124,12 @@ class OverviewTab(BaseTab):
     # 데이터 갱신
     # ─────────────────────────────────────────
 
+    def _on_pref_change(self):
+        """단위 / 평균선 토글이 바뀌면 저장 + 재적용."""
+        app_state.set_ui_pref(_PREF_UNIT, self._unit_menu.get())
+        app_state.set_ui_pref(_PREF_AVG, bool(self._avg_var.get()))
+        self._reapply()
+
     def set_data(self, matches, start, end, unit, label):
         # 자동 단위(unit)와 함께 캐시 — 사용자가 토글/단위 변경 시 _reapply가 재사용
         self._cached = (matches, start, end, unit, label)
@@ -145,9 +153,7 @@ class OverviewTab(BaseTab):
         self.lbl_fc_per_match.configure(text=f"{s['fc_per_match']:.2f}")
 
         # 사용자 선택 단위 (자동이면 auto_unit)
-        sel_label = self._unit_menu.get()
-        override = next((u for name, u in _UNIT_CHOICES if name == sel_label), None)
-        unit = override if override is not None else auto_unit
+        unit = resolve_unit(self._unit_menu.get(), auto_unit)
 
         breakdown = fc_stats.breakdown_for_unit(matches, unit)
         items = [_breakdown_to_item(b) for b in breakdown]

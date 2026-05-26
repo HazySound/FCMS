@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from core import fc_stats
+from core import app_state, fc_stats
 from ui.tabs._base import BaseTab
 from ui.theme import THEME
 from ui.widgets import BarChart
@@ -18,8 +18,8 @@ from ui.widgets import BarChart
 PAD = 12
 PAD_SMALL = 6
 
-# 표본이 너무 적은 시간대는 승률 인사이트에서 제외 (튀는 값 방지)
 _MIN_SAMPLES_FOR_WR = 10
+_PREF_AVG = "time_pattern_avg"
 
 
 class TimePatternTab(BaseTab):
@@ -38,10 +38,12 @@ class TimePatternTab(BaseTab):
         # row 0: 옵션 바
         opts = ctk.CTkFrame(self, fg_color="transparent")
         opts.grid(row=0, column=0, padx=PAD, pady=(PAD, 0), sticky="ew")
-        self._avg_var = ctk.BooleanVar(value=True)
+        self._avg_var = ctk.BooleanVar(
+            value=bool(app_state.get_ui_pref(_PREF_AVG, True))
+        )
         ctk.CTkSwitch(
             opts, text="평균선 표시",
-            variable=self._avg_var, command=self._reapply,
+            variable=self._avg_var, command=self._on_avg_change,
         ).pack(side="left")
 
         # row 1: 인사이트 카드
@@ -77,6 +79,10 @@ class TimePatternTab(BaseTab):
     # ─────────────────────────────────────────
     # 데이터 갱신
     # ─────────────────────────────────────────
+
+    def _on_avg_change(self):
+        app_state.set_ui_pref(_PREF_AVG, bool(self._avg_var.get()))
+        self._reapply()
 
     def set_data(self, matches, start, end, unit, label):
         self._cached = (matches, start, end, unit, label)

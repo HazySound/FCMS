@@ -1,3 +1,13 @@
 {
-  "geometry": "820x820+1442+405"
+  "geometry": "820x820+1442+405",
+  "ui_prefs": {
+    "overview_unit": "일",
+    "overview_avg": true,
+    "period_label": "2026년 시즌2",
+    "period_custom_start": "2026-04-27",
+    "period_custom_end": "2026-05-20",
+    "trend_unit": "일",
+    "trend_avg": true,
+    "weekday_avg": true
+  }
 }

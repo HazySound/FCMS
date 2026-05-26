@@ -40,3 +40,22 @@ def set_geometry(geom: str) -> None:
     state = load_state()
     state["geometry"] = geom
     save_state(state)
+
+
+# ─────────────────────────────────────────────
+# UI preferences (단위 / 토글 / 기간 선택 등 사용자 설정)
+# ─────────────────────────────────────────────
+
+def get_ui_pref(key: str, default=None):
+    prefs = load_state().get("ui_prefs", {})
+    return prefs.get(key, default)
+
+
+def set_ui_pref(key: str, value) -> None:
+    state = load_state()
+    prefs = state.get("ui_prefs", {})
+    if not isinstance(prefs, dict):
+        prefs = {}
+    prefs[key] = value
+    state["ui_prefs"] = prefs
+    save_state(state)

@@ -69,6 +69,9 @@ class MainWindow(ctk.CTk):
 
         self._build_ui()
         self._refresh_all()
+        # 시즌 옵션이 채워진 후, 저장된 PeriodPicker 라벨 1회 복원 시도
+        if accounts.get_active_ouid():
+            self.period_picker.restore_saved_label()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -247,7 +250,8 @@ class MainWindow(ctk.CTk):
         self.account_menu.set(active_label)
 
     def _refresh_period_picker(self):
-        """PeriodPicker에 시즌 옵션 갱신. 활성 계정 없거나 데이터 없으면 시즌 없음."""
+        """PeriodPicker에 시즌 옵션 갱신. 활성 계정 없거나 데이터 없으면 시즌 없음.
+        시즌 옵션이 갱신된 직후 저장된 라벨 복원 시도 (앱 시작 시점 한정)."""
         if not accounts.get_active_ouid():
             self.period_picker.set_seasons([])
             return

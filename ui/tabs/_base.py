@@ -47,3 +47,23 @@ def avg_label_fmt_for_unit(unit: str) -> str:
         "year":  "연 평균 {:.1f}",
     }
     return mapping.get(unit, "평균 {:.1f}")
+
+
+# 단위 선택 드롭다운 공통 옵션 (개요/추이 등 여러 탭이 사용)
+UNIT_CHOICES = [
+    ("자동", None),
+    ("시간대", "hour"),
+    ("일", "day"),
+    ("주", "week"),
+    ("월", "month"),
+    ("연", "year"),
+]
+UNIT_LABEL_LIST = [name for name, _ in UNIT_CHOICES]
+
+
+def resolve_unit(menu_label: str, auto_unit: str) -> str:
+    """드롭다운 메뉴 라벨 → 실제 단위 문자열. '자동'이면 auto_unit으로 fallback."""
+    for name, u in UNIT_CHOICES:
+        if name == menu_label:
+            return u if u is not None else auto_unit
+    return auto_unit

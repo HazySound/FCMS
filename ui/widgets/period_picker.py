@@ -16,8 +16,12 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
-from core import fc_stats, fc_stats_db as db
+from core import app_state, fc_stats, fc_stats_db as db
 from ui.theme import THEME
+
+_PREF_LABEL = "period_label"
+_PREF_CUSTOM_START = "period_custom_start"
+_PREF_CUSTOM_END = "period_custom_end"
 
 PAD = 12
 PAD_SMALL = 6
@@ -62,8 +66,44 @@ class PeriodPicker(ctk.CTkFrame):
         self._seasons = list(season_ids)
         cur_label = self._current[2]
         self._menu.configure(values=self._option_list())
-        # 시즌 갱신 후에도 현재 선택 라벨 유지
         self._menu.set(cur_label)
+
+    def restore_saved_label(self) -> bool:
+        """app_state에 저장된 라벨/기간을 복원. True/False = 복원 여부.
+
+        1) 프리셋/시즌 라벨이면 그대로 compute해서 적용.
+        2) 사용자 정의 라벨이면 저장된 start/end 날짜를 직접 복원.
+        """
+        saved = app_state.get_ui_pref(_PREF_LABEL)
+        if not saved:
+            return False
+
+        # 1) 프리셋/시즌 옵션에 있으면 직접 복원
+        if saved in self._option_list():
+            period = self._compute(saved)
+            if period is None:
+                return False
+            self._current = period
+            self._menu.set(saved)
+            self._notify()
+            return True
+
+        # 2) 사용자 정의 — start/end 날짜 가져와 복원
+        s_str = app_state.get_ui_pref(_PREF_CUSTOM_START)
+        e_str = app_state.get_ui_pref(_PREF_CUSTOM_END)
+        if not s_str or not e_str:
+            return False
+        try:
+            start = _dt.datetime.strptime(s_str, "%Y-%m-%d").date()
+            end = _dt.datetime.strptime(e_str, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return False
+        if start > end:
+            return False
+        self._current = (start, end, saved)
+        self._menu.set(saved)
+        self._notify()
+        return True
 
     def get_period(self) -> tuple[_dt.date, _dt.date, str]:
         return self._current
@@ -104,6 +144,7 @@ class PeriodPicker(ctk.CTkFrame):
         if period is None:
             return
         self._current = period
+        app_state.set_ui_pref(_PREF_LABEL, value)
         self._notify()
 
     def _compute(self, label: str) -> Optional[tuple[_dt.date, _dt.date, str]]:
@@ -152,8 +193,12 @@ class PeriodPicker(ctk.CTkFrame):
         else:
             label = f"{start.strftime('%m-%d')} ~ {end.strftime('%m-%d')}"
         self._current = (start, end, label)
-        # 사용자 정의는 메뉴 라벨에 노출만 하고 옵션 목록엔 추가 안 함
         self._menu.set(label)
+        # 사용자 정의도 영속화 — 라벨 + 시작/종료 날짜를 별도 키로 저장.
+        # 다음 실행 시 restore_saved_label이 이 키들을 보고 정확한 기간 복원.
+        app_state.set_ui_pref(_PREF_LABEL, label)
+        app_state.set_ui_pref(_PREF_CUSTOM_START, start.strftime("%Y-%m-%d"))
+        app_state.set_ui_pref(_PREF_CUSTOM_END, end.strftime("%Y-%m-%d"))
         self._notify()
 
     def _notify(self):
