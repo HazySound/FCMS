@@ -28,7 +28,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
-from core import fc_api, fc_stats_db as db
+from core import accounts, fc_api, fc_stats_db as db
 
 # stdout 진단 로그: FCSTATS_DEBUG=1 또는 콘솔 attach 시 출력
 _DEBUG = os.environ.get("FCSTATS_DEBUG") == "1" or (sys.stdout and sys.stdout.isatty())
@@ -291,6 +291,10 @@ def sync_user(
         _log(f"  detail 병렬 {len(details_map)}/{len(new_ids)}건  ({(time.perf_counter()-t_detail)*1000:.0f}ms)")
 
     # ── Step 4: 변환 + batch UPSERT ──────────────────────────────
+    # 가장 최근 매치의 nickname을 추적해 메타에 자동 갱신 — 게임 내 닉네임
+    # 변경을 별도 UI 없이 따라간다.
+    latest_nickname: Optional[str] = None
+    latest_date: str = ""
     if details_map and not cancelled:
         if stats:
             stats.set_phase("upsert")
@@ -306,9 +310,10 @@ def sync_user(
             fc_earned = fc_api.calc_fc(
                 info["division"], info["matchResult"], info["matchEndType"] or 0,
             )
+            match_date = detail.get("matchDate") or ""
             new_records.append({
                 "match_id":       mid,
-                "match_date":     detail.get("matchDate"),
+                "match_date":     match_date,
                 "match_type":     detail.get("matchType", matchtype),
                 "season_id":      info["seasonId"],
                 "division":       info["division"],
@@ -317,6 +322,10 @@ def sync_user(
                 "fc_earned":      fc_earned,
                 "fetched_at":     fetched_at,
             })
+            nick = info.get("nickname")
+            if nick and match_date > latest_date:
+                latest_date = match_date
+                latest_nickname = nick
 
         if new_records:
             db.upsert_matches(new_records)
@@ -324,6 +333,13 @@ def sync_user(
             if stats:
                 stats.inc_new(new_count)
         _log(f"  batch upsert {new_count}건  ({(time.perf_counter()-t_up)*1000:.0f}ms)")
+
+    # 닉네임 자동 갱신 (이번 sync에서 매치를 1건 이상 받은 경우에만)
+    if latest_nickname:
+        try:
+            accounts.update_nickname(ouid, latest_nickname)
+        except Exception:
+            pass
 
     return _finalize(ouid, new_count, pages, started_at, cancelled,
                      on_progress=on_progress, stats=stats)

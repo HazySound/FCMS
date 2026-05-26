@@ -61,3 +61,10 @@ merge_legacy_db.py
 FCMS.exe
 /data
 /dist
+/assets
+/data
+data/fc_stats_meta.json
+data/window_state.json
+dist/data/fc_stats_287db7a34f1feb2fca4654e09bc0ba41.db
+dist/FCMS.exe
+capture.png

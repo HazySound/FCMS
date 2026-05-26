@@ -80,3 +80,28 @@ def set_api_key(key: str) -> None:
     else:
         state.pop("nexon_api_key", None)
     save_state(state)
+
+
+# ─────────────────────────────────────────────
+# 공지 dismiss 추적 — 한 번 본 공지 ID는 다시 표시하지 않음
+# ─────────────────────────────────────────────
+
+def get_seen_notice_ids() -> set:
+    val = load_state().get("seen_notice_ids", [])
+    if isinstance(val, list):
+        return {str(x) for x in val}
+    return set()
+
+
+def mark_notice_seen(notice_id: str) -> None:
+    if not notice_id:
+        return
+    state = load_state()
+    seen = state.get("seen_notice_ids", [])
+    if not isinstance(seen, list):
+        seen = []
+    notice_id = str(notice_id)
+    if notice_id not in seen:
+        seen.append(notice_id)
+        state["seen_notice_ids"] = seen
+        save_state(state)

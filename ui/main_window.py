@@ -23,11 +23,12 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from core import accounts, app_state, fc_api, fc_stats, fc_stats_db as db, fc_sync, updater
+from core import accounts, app_state, fc_api, fc_stats, fc_stats_db as db, fc_sync, notices, updater
 from path_manager import get_resource_path
 from ui.tabs import (
     OverviewTab, TimePatternTab, WeekdayTab, TrendTab, DistributionTab,
 )
+from ui.notice_dialog import NoticeDialog
 from ui.theme import THEME
 from ui.update_dialog import UpdateProgressDialog
 from ui.widgets import ApiKeyPopover, PeriodPicker
@@ -77,6 +78,8 @@ class MainWindow(ctk.CTk):
 
         # 앱 시작 ~2초 후 백그라운드로 자동 업데이트 체크
         self.after(2000, self._auto_update_check)
+        # 앱 시작 ~3초 후 백그라운드로 공지 체크 — 업데이트 체크와 살짝 분리
+        self.after(3000, self._auto_notice_check)
 
     # ─────────────────────────────────────────
     # UI 구축
@@ -644,6 +647,48 @@ class MainWindow(ctk.CTk):
         """앱 시작 시 백그라운드로 새 버전 체크. 새 버전 있으면 배너만 표시."""
         threading.Thread(target=self._update_check_worker,
                          args=(False,), daemon=True).start()
+
+    # ─────────────────────────────────────────
+    # 공지사항 (notices.json polling)
+    # ─────────────────────────────────────────
+
+    def _auto_notice_check(self):
+        """앱 시작 시 백그라운드로 GitHub raw notices.json 조회.
+        안 본 공지가 있으면 메인 스레드에서 다이얼로그 순차 표시.
+        네트워크 실패는 silent.
+        """
+        threading.Thread(target=self._notice_check_worker, daemon=True).start()
+
+    def _notice_check_worker(self):
+        try:
+            unseen = notices.fetch_unseen_notices()
+        except Exception:
+            return
+        if not unseen:
+            return
+        self.after(0, lambda: self._show_notices(unseen))
+
+    def _show_notices(self, items: list):
+        """다이얼로그 순차 표시. 한 다이얼로그가 destroy되면 다음 표시.
+        한 번에 여러 모달을 띄우면 사용자가 어떤 게 어떤 건지 헷갈리기 쉬워서
+        하나씩 순차 노출.
+        """
+        if not items:
+            return
+        head, rest = items[0], items[1:]
+        dlg = NoticeDialog(self, head)
+        if rest:
+            # <Destroy>는 자식 위젯들 각각 destroy 시에도 trigger되므로
+            # closure flag로 한 번만 실행.
+            fired = [False]
+
+            def _on_close(_evt=None):
+                if fired[0]:
+                    return
+                fired[0] = True
+                self.after(150, lambda: self._show_notices(rest))
+
+            dlg.bind("<Destroy>", _on_close)
 
     def _on_manual_update_check(self):
         """수동 '업데이트 확인' 버튼. 결과를 messagebox로도 알림."""
